@@ -12,7 +12,7 @@ entity SERIAL_CALCULATOR_TB is
         NUM_BITS        :natural := 8;                  -- liczba bitow slowa danych (5-8)
         PARITY_BITS     :natural := 1;                  -- liczba bitow parzystosci (0-1)
         STOP_BITS       :natural := 2;                  -- liczba bitow stopu (1-2)
-        MAX_DIGITS      :natural := 3                   -- liczba cyfr dziesietnych
+        MAX_DIGITS      :natural := 9                   -- liczba cyfr dziesietnych
     );
   
 end SERIAL_CALCULATOR_TB;
@@ -29,8 +29,8 @@ architecture behavioural of SERIAL_CALCULATOR_TB is
     constant T          :time := 1 sec / F;
     constant BIT_T      :time := 1 sec / BAUD_RATE;
 
-    constant REQUEST    :string := "-101*915=";
-    signal   RESULT     :string(REQUEST'length + MAX_DIGITS downto 1);
+    constant REQUEST    :string := "123456789*987654321=";
+    signal   RESULT     :string(REQUEST'length + 2 * MAX_DIGITS downto 1);
  
 begin
 

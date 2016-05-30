@@ -36,21 +36,26 @@ architecture behavioural of SERIAL_CALCULATOR is
     type        INSTRUCTION is (ARGUMENT1, ARGUMENT2, CALCULATING, START);                                  -- lista instrukcji pracy interpretera
     signal      state :INSTRUCTION;                                                                         -- rejestr maszyny stanow interpretera
         
-    subtype     DIGIT   is natural range 0 to 9;                                                            -- typ cyfry dziesietnej
-    type        NUMBER  is array(natural range <>) of DIGIT;                                                -- typ liczby dziesietnej zlozonej z cyfr
+    subtype     DIGIT       is natural range 0 to 9;                                                        -- typ cyfry dziesietnej
+    type        NUMBER      is array(natural range <>) of DIGIT;                                            -- typ liczby dziesietnej zlozonej z cyfr
+    type        NUM_ARRAY   is array(natural range <>) of NUMBER(MAX_DIGITS downto 0);                      -- typ tablicy wynikow mnozen
         
-    type        SIGN    is (PLUS, MINUS);                                                                   -- typ znaku plus/minus
+    type        SIGN        is (PLUS, MINUS);                                                               -- typ znaku plus/minus
     
     signal      arg1        :NUMBER(MAX_DIGITS - 1 downto 0);                                               -- argument 1
     signal      arg2        :NUMBER(MAX_DIGITS - 1 downto 0);                                               -- argument 2
     
+    signal      partial_results :NUM_ARRAY(MAX_DIGITS - 1 downto 0);                                        -- wyniki mnozen
+    
     signal      result      :NUMBER(2 * MAX_DIGITS - 1 downto 0);                                           -- wynik dzialania kalkulatora
     signal      result_sign :SIGN;                                                                          -- znak wyniku
-    signal      num_digits  :natural range 0 to MAX_DIGITS;                                                 -- licznik cyfr argumentu
+    signal      num_digits  :natural range 0 to MAX_DIGITS * 2;                                             -- licznik cyfr argumentu
+    signal      num_results :natural range 0 to MAX_DIGITS;                                                 -- licznik czesciowych wynikow mnozen
 
-    type        CALCULATION_STATE is (COMPUTING, REVERSING, SENDING, SENDING_SIGN, WAITING, WAITING_SIGN);  -- lista instrukcji wyznaczania wyniku
+    type        CALCULATION_STATE is (MULTIPLYING, ADDING, SENDING, SENDING_SIGN, WAITING, WAITING_SIGN);   -- lista instrukcji wyznaczania wyniku
     signal      calculator_state    :CALCULATION_STATE;                                                     -- rejestr maszyny stanow wyznaczania wyniku
     signal      carry_flag          :natural range 0 to 1;                                                  -- wartosc przeniesienia dodawania/odejmowania
+    signal      carry_mul           :natural range 0 to 8;
     signal      is_prev_digit       :std_logic;                                                             -- flaga oznaczająca koniec wprowadzania znaków argumentu
 
     constant    ZERO_BYTE           :std_logic_vector(NUM_BITS - 1 downto 0) := (others => '0');            -- slowo z ustawiona wartoscia 0
@@ -119,7 +124,9 @@ begin
         constant RECV_ERROR         :std_logic_vector := char_code('!');            -- slowo z kodem przypisanym do bledu odbioru
         constant INSTRUCTION_ERROR  :std_logic_vector := char_code('?');            -- slowo z kodem przypisanym do bledu instrukcji
         
-        --variable digit_sum      :integer range -10 to 19;
+        variable digit_sum      :integer range 0 to 19;
+        variable digit_mul      :integer range 0 to 99;
+        variable tmp_mul_carry  :integer range 0 to 8;
         --variable tmp_result     :NUMBER(MAX_DIGITS - 1 downto 0);
         --variable sign           :OPERATOR;
         --variable tmp_num_args   :natural range 0 to MAX_ARGS;
@@ -134,10 +141,13 @@ begin
             arg1            <= (others => 0);
             arg2            <= (others => 0);
             result          <= (others => 0);
+            partial_results <= (others => (others => 0));
             result_sign     <= PLUS;
             is_prev_digit   <= '0';
             num_digits      <= 0;
+            num_results     <= 0;
             carry_flag      <= 0;
+            carry_mul       <= 0;
 
         elsif (rising_edge(C)) then                                                 -- synchroniczna praca kalkulatora
 
@@ -155,9 +165,12 @@ begin
                     arg1            <= (others => 0);
                     arg2            <= (others => 0);
                     result          <= (others => 0);                                                       -- wyzerowanie sumy argumentow
+                    partial_results <= (others => (others => 0));
                     result_sign     <= PLUS;
                     is_prev_digit   <= '0';
                     num_digits      <= 0;                                                                   -- wyzerowanie licznika cyfr
+                    num_results     <= 0;
+                    carry_mul       <= 0;
                 else                                                                                        -- interpretacja odebranego slowa
             
                     case state is                                                                           -- badanie aktualnego stanu maszyny interpretera
@@ -230,9 +243,69 @@ begin
 
             if (state /= CALCULATING) then                                                              -- oczekiwanie na stan CALCULATING interpretera
                 carry_flag          <= 0;                                                               -- wyzerowanie wartosci przeniesienia
-                calculator_state    <= COMPUTING;                                                       -- ustawienie poczatkowe stanu COMPUTING
+                calculator_state    <= MULTIPLYING;                                                     -- ustawienie poczatkowe stanu MULTIPLYING
             else                                                                                        -- osiagnieto stan CALCULATING
                 case calculator_state is
+                
+                    when MULTIPLYING =>
+                        
+                        if (num_results = MAX_DIGITS) then
+                            num_digits          <= 0;
+                            num_results         <= 0;
+                            carry_flag          <= 0;
+                            calculator_state    <= ADDING;
+                        else
+                            if (num_digits = MAX_DIGITS) then
+                                num_digits                                  <= 0;
+                                num_results                                 <= num_results + 1;
+                                partial_results(num_results)(num_digits)    <= carry_mul;
+                                carry_mul                                   <= 0;
+                            else
+                                digit_mul := arg1(num_digits) * arg2(num_results) + carry_mul;
+                                tmp_mul_carry := 0;
+                            
+                                while (digit_mul >= 10) loop
+                                    digit_mul       := digit_mul - 10;
+                                    tmp_mul_carry   := tmp_mul_carry + 1;
+                                end loop;
+                            
+                                carry_mul                                   <= tmp_mul_carry;
+                                partial_results(num_results)(num_digits)    <= digit_mul;
+                            
+                                num_digits <= num_digits + 1;
+                            end if;
+                        end if;
+                        
+                    when ADDING =>
+                    
+                        if (num_results = MAX_DIGITS) then
+                            num_digits          <= 0;
+                            num_results         <= 0;
+                            carry_flag          <= 0;
+                            calculator_state    <= SENDING_SIGN;
+                            
+                            if (tx_sending = '1') then
+                                calculator_state <= WAITING_SIGN;
+                            end if;
+                        else
+                            if (num_digits = MAX_DIGITS + 1) then
+                                num_digits  <= 0;
+                                carry_flag  <= 0;
+                                num_results <= num_results + 1;
+                            else
+                                digit_sum := result(num_digits + num_results) + partial_results(num_results)(num_digits) + carry_flag;
+                                    
+                                if (digit_sum < 10) then                                            -- obsluga przepelnienia
+                                    result(num_digits + num_results)  <= digit_sum;
+                                    carry_flag      <= 0;
+                                else
+                                    result(num_digits + num_results)  <= digit_sum - 10;
+                                    carry_flag      <= 1;
+                                end if;
+                                
+                                num_digits <= num_digits + 1;
+                            end if;
+                        end if;
                         
                     when SENDING_SIGN =>                                                                -- wysylanie znaku jesli minus
                     
@@ -249,14 +322,14 @@ begin
                         if (num_digits /= MAX_DIGITS * 2) then                                          -- badanie czy pozostaly cyfry do wyslania
                             num_digits <= num_digits + 1;                                               -- zwiekszenie o 1 liczby wyslanych cyfr
                             
-                            if (carry_flag = 1 or result(MAX_DIGITS - 1) /= 0 or num_digits = MAX_DIGITS - 1) then   -- badanie czy nlezy wyslac cyfre 
-                                tx_byte             <= ZERO_BYTE + character'pos('0') + result(MAX_DIGITS - 1);      -- wyznaczenie i ustawienie kodu wysylanej cyfry
+                            if (carry_flag = 1 or result(2 * MAX_DIGITS - 1) /= 0 or num_digits = 2 * MAX_DIGITS - 1) then   -- badanie czy nlezy wyslac cyfre 
+                                tx_byte             <= ZERO_BYTE + character'pos('0') + result(2 * MAX_DIGITS - 1);      -- wyznaczenie i ustawienie kodu wysylanej cyfry
                                 tx_send             <= '1';                                             -- ustawienie flagi zadania nadawania przez 'SERIAL_TX'
                                 carry_flag          <= 1;                                               -- ustawienie flagi przeniesienia jako znacznika wysylania
                                 calculator_state    <= WAITING;                                         -- przejscie do stanu WAITING
                             end if;
                         else                                                                            -- wykonano wyslanie wszystkich cyfr
-                            calculator_state    <= COMPUTING;                                           -- przejscie do stanu COMPUTING
+                            calculator_state    <= MULTIPLYING;                                         -- przejscie do stanu MULTIPLYING
                             state               <= START;                                               -- przejscie do stanu START interpretera
                         end if;
                         
