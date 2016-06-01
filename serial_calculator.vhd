@@ -54,8 +54,8 @@ architecture behavioural of SERIAL_CALCULATOR is
 
     type        CALCULATION_STATE is (MULTIPLYING, ADDING, SENDING, SENDING_SIGN, WAITING, WAITING_SIGN);   -- lista instrukcji wyznaczania wyniku
     signal      calculator_state    :CALCULATION_STATE;                                                     -- rejestr maszyny stanow wyznaczania wyniku
-    signal      carry_flag          :natural range 0 to 1;                                                  -- wartosc przeniesienia dodawania/odejmowania
-    signal      carry_mul           :natural range 0 to 8;
+    signal      carry_flag          :natural range 0 to 1;                                                  -- wartosc przeniesienia dodawania
+    signal      carry_mul           :natural range 0 to 8;                                                  -- wartosc przeniesienia mnozenia
     signal      is_prev_digit       :std_logic;                                                             -- flaga oznaczająca koniec wprowadzania znaków argumentu
 
     constant    ZERO_BYTE           :std_logic_vector(NUM_BITS - 1 downto 0) := (others => '0');            -- slowo z ustawiona wartoscia 0
@@ -112,7 +112,7 @@ begin
             end if;
         end function;
         
-        function reverse_sign(s :SIGN) return SIGN is                       -- odwracanie znaku
+        function reverse_sign(s :SIGN) return SIGN is                               -- odwracanie znaku
         begin
             if (s = PLUS) then
                 return MINUS;
@@ -124,12 +124,9 @@ begin
         constant RECV_ERROR         :std_logic_vector := char_code('!');            -- slowo z kodem przypisanym do bledu odbioru
         constant INSTRUCTION_ERROR  :std_logic_vector := char_code('?');            -- slowo z kodem przypisanym do bledu instrukcji
         
-        variable digit_sum      :integer range 0 to 19;
-        variable digit_mul      :integer range 0 to 99;
-        variable tmp_mul_carry  :integer range 0 to 8;
-        --variable tmp_result     :NUMBER(MAX_DIGITS - 1 downto 0);
-        --variable sign           :OPERATOR;
-        --variable tmp_num_args   :natural range 0 to MAX_ARGS;
+        variable digit_sum      :integer range 0 to 19;                             -- wynik dodawania cyfr
+        variable digit_mul      :integer range 0 to 99;                             -- wynik mnozenia cyfr
+        variable tmp_mul_carry  :integer range 0 to 8;                              -- przeniesienie mnozenia
 
     begin
 
@@ -175,46 +172,46 @@ begin
             
                     case state is                                                                           -- badanie aktualnego stanu maszyny interpretera
 
-                        when ARGUMENT1 =>
+                        when ARGUMENT1 =>                                                                   -- odbieranie argumentu 1
                         
-                            if (rx_byte = char_code('-') or rx_byte = char_code('+')) then
-                                if (is_prev_digit = '1') then
+                            if (rx_byte = char_code('-') or rx_byte = char_code('+')) then                  -- plus lub minus
+                                if (is_prev_digit = '1') then                                               -- jesli nie jest na poczatku to blad
                                     tx_byte <= INSTRUCTION_ERROR;
                                     state   <= START;
-                                elsif (rx_byte = char_code('-')) then
-                                    result_sign <= reverse_sign(result_sign);
+                                elsif (rx_byte = char_code('-')) then                                       -- jesli znak to minus
+                                    result_sign <= reverse_sign(result_sign);                               -- odwracamy znak wyniku
                                 end if;
-                            elsif (rx_byte = char_code('*')) then
+                            elsif (rx_byte = char_code('*')) then                                           -- jesli * to nastepny argument
                                 is_prev_digit <= '0';
                                 num_digits <= 0;
                                 state <= ARGUMENT2;
-                            elsif (calculate_digit_value(rx_byte) /= 10) then
-                                arg1(0) <= calculate_digit_value(rx_byte);
+                            elsif (calculate_digit_value(rx_byte) /= 10) then                               -- jesli cyfra
+                                arg1(0) <= calculate_digit_value(rx_byte);                                  -- doklejamy do arg1
                                 arg1(arg1'left downto 1) <= arg1(arg1'left - 1 downto 0);
                                 
-                                if (num_digits /= MAX_DIGITS) then
+                                if (num_digits /= MAX_DIGITS) then                                          -- jesli za duzo cyfr to blad
                                     num_digits <= num_digits + 1;
                                 else
                                     tx_byte <= INSTRUCTION_ERROR;
                                     state   <= START;
                                 end if;
                                 
-                                is_prev_digit <= '1';
-                            else
+                                is_prev_digit <= '1';                                                       -- ustawienie flagi znakows
+                            else                                                                            -- jesli inny znak to blad
                                 tx_byte <= INSTRUCTION_ERROR;
                                 state   <= START;
                             end if;
                             
-                        when ARGUMENT2 =>
+                        when ARGUMENT2 =>                                                                   -- obsluga arg2
                         
-                            if (rx_byte = char_code('-') or rx_byte = char_code('+')) then
+                            if (rx_byte = char_code('-') or rx_byte = char_code('+')) then                  -- tak samo jak arg1
                                 if (is_prev_digit = '1') then
                                     tx_byte <= INSTRUCTION_ERROR;
                                     state   <= START;
                                 elsif (rx_byte = char_code('-')) then
                                     result_sign <= reverse_sign(result_sign);
                                 end if;
-                            elsif (rx_byte = char_code('=')) then
+                            elsif (rx_byte = char_code('=')) then                                           -- jesli = to obliczamy
                                 is_prev_digit <= '0';
                                 num_digits <= 0;
                                 state <= CALCULATING;
@@ -244,41 +241,41 @@ begin
             if (state /= CALCULATING) then                                                              -- oczekiwanie na stan CALCULATING interpretera
                 carry_flag          <= 0;                                                               -- wyzerowanie wartosci przeniesienia
                 calculator_state    <= MULTIPLYING;                                                     -- ustawienie poczatkowe stanu MULTIPLYING
-            else                                                                                        -- osiagnieto stan CALCULATING
+            else
                 case calculator_state is
                 
-                    when MULTIPLYING =>
+                    when MULTIPLYING =>                                                                 -- mnozenie cyfr
                         
-                        if (num_results = MAX_DIGITS) then
+                        if (num_results = MAX_DIGITS) then                                              -- jezeli skonczono wszystkie mnozenia to przejscie do dodawania
                             num_digits          <= 0;
                             num_results         <= 0;
                             carry_flag          <= 0;
                             calculator_state    <= ADDING;
                         else
-                            if (num_digits = MAX_DIGITS) then
+                            if (num_digits = MAX_DIGITS) then                                           -- jezeli koniec mnozenia argumentu 1 przez cyfre num_digits z arg2 to nastepna cyfra
                                 num_digits                                  <= 0;
                                 num_results                                 <= num_results + 1;
-                                partial_results(num_results)(num_digits)    <= carry_mul;
+                                partial_results(num_results)(num_digits)    <= carry_mul;               -- zapis przeniesienia do N+1 cyfry czesciowego wyniku
                                 carry_mul                                   <= 0;
                             else
-                                digit_mul := arg1(num_digits) * arg2(num_results) + carry_mul;
+                                digit_mul := arg1(num_digits) * arg2(num_results) + carry_mul;          -- mnozenie z przeniesieniem
                                 tmp_mul_carry := 0;
                             
-                                while (digit_mul >= 10) loop
+                                while (digit_mul >= 10) loop                                            -- obliczanie wartosci do przeniesienia
                                     digit_mul       := digit_mul - 10;
                                     tmp_mul_carry   := tmp_mul_carry + 1;
                                 end loop;
                             
-                                carry_mul                                   <= tmp_mul_carry;
-                                partial_results(num_results)(num_digits)    <= digit_mul;
+                                carry_mul                                   <= tmp_mul_carry;           -- nowa wartosc przeniesienia
+                                partial_results(num_results)(num_digits)    <= digit_mul;               -- zapis wyniku mnozenia do wyniku czesciowego
                             
                                 num_digits <= num_digits + 1;
                             end if;
                         end if;
                         
-                    when ADDING =>
+                    when ADDING =>                                                                      -- dodawanie wynikow czesciowych
                     
-                        if (num_results = MAX_DIGITS) then
+                        if (num_results = MAX_DIGITS) then                                              -- jezeli koniec sumowanie to wysylanie
                             num_digits          <= 0;
                             num_results         <= 0;
                             carry_flag          <= 0;
@@ -288,15 +285,15 @@ begin
                                 calculator_state <= WAITING_SIGN;
                             end if;
                         else
-                            if (num_digits = MAX_DIGITS + 1) then
+                            if (num_digits = MAX_DIGITS + 1) then                                       -- nastepny wynik czesciowy
                                 num_digits  <= 0;
                                 carry_flag  <= 0;
                                 num_results <= num_results + 1;
                             else
-                                digit_sum := result(num_digits + num_results) + partial_results(num_results)(num_digits) + carry_flag;
+                                digit_sum := result(num_digits + num_results) + partial_results(num_results)(num_digits) + carry_flag;  -- suma cyfr z aktualnego wyniku i wyniku czesciowego + przeniesienie
                                     
                                 if (digit_sum < 10) then                                            -- obsluga przepelnienia
-                                    result(num_digits + num_results)  <= digit_sum;
+                                    result(num_digits + num_results)  <= digit_sum;                 -- zapis wyniku w odpowiednie miejsce (uwzgledniajac numer wyniku czesciowego i jego cyfre)
                                     carry_flag      <= 0;
                                 else
                                     result(num_digits + num_results)  <= digit_sum - 10;
