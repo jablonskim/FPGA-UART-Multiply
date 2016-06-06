@@ -127,6 +127,7 @@ begin
         variable digit_sum      :integer range 0 to 19;                             -- wynik dodawania cyfr
         variable digit_mul      :integer range 0 to 99;                             -- wynik mnozenia cyfr
         variable tmp_mul_carry  :integer range 0 to 8;                              -- przeniesienie mnozenia
+        variable mul_carry_cnt  :integer range 0 to 10;                             -- licznik petli obliczajacej przeniesinie mnozenia
 
     begin
 
@@ -260,10 +261,14 @@ begin
                             else
                                 digit_mul := arg1(num_digits) * arg2(num_results) + carry_mul;          -- mnozenie z przeniesieniem
                                 tmp_mul_carry := 0;
-                            
-                                while (digit_mul >= 10) loop                                            -- obliczanie wartosci do przeniesienia
-                                    digit_mul       := digit_mul - 10;
-                                    tmp_mul_carry   := tmp_mul_carry + 1;
+                                mul_carry_cnt := 10;
+
+                                while (mul_carry_cnt /= 0) loop                                         -- obliczanie wartosci do przeniesienia
+                                    if (digit_mul >= 10) then
+                                        digit_mul       := digit_mul - 10;
+                                        tmp_mul_carry   := tmp_mul_carry + 1;
+                                    end if;
+                                    mul_carry_cnt := mul_carry_cnt - 1;
                                 end loop;
                             
                                 carry_mul                                   <= tmp_mul_carry;           -- nowa wartosc przeniesienia
